@@ -1,4 +1,4 @@
-// app/api/emails/generate/route.ts
+// 修改 app/api/emails/generate/route.ts
 import { NextResponse } from "next/server"
 import { nanoid } from "nanoid"
 import { createDb } from "@/lib/db"
@@ -10,26 +10,29 @@ import { getRequestContext } from "@cloudflare/next-on-pages"
 import { getUserId } from "@/lib/apiKey"
 import { getUserRole } from "@/lib/auth"
 import { ROLES } from "@/lib/permissions"
-import { createHash } from 'crypto' // ⭐⭐⭐ 导入crypto ⭐⭐⭐
 
 export const runtime = "edge"
 
-// ⭐⭐⭐ MD5哈希生成ID ⭐⭐⭐
-function generateEmailId(emailAddress: string): string {
+// ⭐⭐⭐ 使用 Web Crypto API 生成哈希 ⭐⭐⭐
+async function generateEmailId(emailAddress: string): Promise<string> {
   const email = emailAddress.toLowerCase().trim()
   
-  // 使用MD5生成16字节哈希
-  const hash = createHash('md5')
-    .update(email)
-    .digest('hex') // 32字符十六进制
+  // 使用 Web Crypto API 计算 MD5 哈希
+  const encoder = new TextEncoder()
+  const data = encoder.encode(email)
   
-  // 格式化为UUID样式
+  // 计算 MD5 哈希
+  const hashBuffer = await crypto.subtle.digest('MD5', data)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+  
+  // 格式化为 UUID 样式
   return [
-    hash.substring(0, 8),
-    hash.substring(8, 12),
-    hash.substring(12, 16),
-    hash.substring(16, 20),
-    hash.substring(20, 32)
+    hashHex.substring(0, 8),
+    hashHex.substring(8, 12),
+    hashHex.substring(12, 16),
+    hashHex.substring(16, 20),
+    hashHex.substring(20, 32)
   ].join('-')
 }
 
@@ -86,8 +89,8 @@ export async function POST(request: Request) {
 
     const address = `${name || nanoid(8)}@${domain}`
     
-    // ⭐⭐⭐ 生成ID ⭐⭐⭐
-    let emailId = generateEmailId(address)
+    // ⭐⭐⭐ 生成ID（异步调用）⭐⭐⭐
+    let emailId = await generateEmailId(address)
     
     const existingEmail = await db.query.emails.findFirst({
       where: eq(sql`LOWER(${emails.address})`, address.toLowerCase())
