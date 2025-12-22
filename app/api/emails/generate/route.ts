@@ -64,6 +64,24 @@ export async function POST(request: Request) {
     }
 
     const address = `${name || nanoid(8)}@${domain}`
+    
+    // ==================== ⭐⭐⭐ 新增代码开始 ⭐⭐⭐ ====================
+    // 根据邮箱地址生成 ID
+    let emailId = `email_${address.toLowerCase()
+      .replace(/[@.]/g, '_')
+      .replace(/[^a-z0-9_]/g, '')}`
+    
+    // 检查 ID 是否唯一（虽然概率很低）
+    const existingId = await db.query.emails.findFirst({
+      where: eq(emails.id, emailId)
+    })
+    
+    if (existingId) {
+      // 如果 ID 冲突，添加随机后缀
+      emailId = `${emailId}_${Math.random().toString(36).substring(2, 6)}`
+    }
+    // ==================== ⭐⭐⭐ 新增代码结束 ⭐⭐⭐ ====================
+    
     const existingEmail = await db.query.emails.findFirst({
       where: eq(sql`LOWER(${emails.address})`, address.toLowerCase())
     })
@@ -81,6 +99,7 @@ export async function POST(request: Request) {
       : new Date(now.getTime() + expiryTime)
     
     const emailData: typeof emails.$inferInsert = {
+      id: emailId,          // ⭐⭐⭐ 添加这行：使用生成的 ID ⭐⭐⭐
       address,
       createdAt: now,
       expiresAt: expires,
@@ -102,4 +121,4 @@ export async function POST(request: Request) {
       { status: 500 }
     )
   }
-} 
+}
