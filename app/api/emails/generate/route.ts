@@ -9,9 +9,30 @@ import { getRequestContext } from "@cloudflare/next-on-pages"
 import { getUserId } from "@/lib/apiKey"
 import { getUserRole } from "@/lib/auth"
 import { ROLES } from "@/lib/permissions"
-import { generateEmailUUID } from "@/lib/uuid-v5" // ⭐⭐⭐ 新增导入 ⭐⭐⭐
 
 export const runtime = "edge"
+
+// ⭐⭐⭐ 简单的ID生成函数 ⭐⭐⭐
+function generateEmailId(emailAddress: string): string {
+  const email = emailAddress.toLowerCase().trim()
+  
+  // 简单的确定性哈希
+  let hash = 0
+  for (let i = 0; i < email.length; i++) {
+    hash = ((hash << 5) - hash) + email.charCodeAt(i)
+    hash |= 0
+  }
+  
+  // 格式化为UUID样式
+  const hex = Math.abs(hash).toString(16).padStart(32, '0')
+  return [
+    hex.substring(0, 8),
+    hex.substring(8, 12),
+    hex.substring(12, 16),
+    hex.substring(16, 20),
+    hex.substring(20, 32)
+  ].join('-')
+}
 
 export async function POST(request: Request) {
   const db = createDb()
@@ -66,10 +87,8 @@ export async function POST(request: Request) {
 
     const address = `${name || nanoid(8)}@${domain}`
     
-    // ==================== ⭐⭐⭐ 修改这里：使用 UUID v5 ⭐⭐⭐ ====================
-    // 基于邮箱地址生成确定性UUID v5（不使用用户ID）
-    let emailId = generateEmailUUID(address) // ⭐⭐⭐ 注意：不传用户ID ⭐⭐⭐
-    // ==========================================================================
+    // ⭐⭐⭐ 生成ID ⭐⭐⭐
+    let emailId = generateEmailId(address)
     
     const existingEmail = await db.query.emails.findFirst({
       where: eq(sql`LOWER(${emails.address})`, address.toLowerCase())
@@ -82,14 +101,13 @@ export async function POST(request: Request) {
       )
     }
 
-    // 检查ID是否已存在（由于不使用用户ID，不同用户可能生成相同UUID）
+    // 检查ID是否已存在
     const existingId = await db.query.emails.findFirst({
       where: eq(emails.id, emailId)
     })
     
     if (existingId) {
-      // UUID v5冲突！使用随机UUID作为回退
-      console.warn(`UUID v5冲突: ${emailId} 已存在，使用随机UUID作为回退`)
+      // ID冲突，使用随机UUID
       emailId = crypto.randomUUID()
     }
 
@@ -99,7 +117,7 @@ export async function POST(request: Request) {
       : new Date(now.getTime() + expiryTime)
     
     const emailData: typeof emails.$inferInsert = {
-      id: emailId,          // ⭐⭐⭐ 使用 UUID v5 ⭐⭐⭐
+      id: emailId,
       address,
       createdAt: now,
       expiresAt: expires,
