@@ -9,6 +9,7 @@ import { getRequestContext } from "@cloudflare/next-on-pages"
 import { getUserId } from "@/lib/apiKey"
 import { getUserRole } from "@/lib/auth"
 import { ROLES } from "@/lib/permissions"
+import { generateEmailUUID } from "@/lib/uuid-v5" // ⭐⭐⭐ 新增导入 ⭐⭐⭐
 
 export const runtime = "edge"
 
@@ -65,22 +66,10 @@ export async function POST(request: Request) {
 
     const address = `${name || nanoid(8)}@${domain}`
     
-    // ==================== ⭐⭐⭐ 新增代码开始 ⭐⭐⭐ ====================
-    // 根据邮箱地址生成 ID
-    let emailId = `email_${address.toLowerCase()
-      .replace(/[@.]/g, '_')
-      .replace(/[^a-z0-9_]/g, '')}`
-    
-    // 检查 ID 是否唯一（虽然概率很低）
-    const existingId = await db.query.emails.findFirst({
-      where: eq(emails.id, emailId)
-    })
-    
-    if (existingId) {
-      // 如果 ID 冲突，添加随机后缀
-      emailId = `${emailId}_${Math.random().toString(36).substring(2, 6)}`
-    }
-    // ==================== ⭐⭐⭐ 新增代码结束 ⭐⭐⭐ ====================
+    // ==================== ⭐⭐⭐ 修改这里：使用 UUID v5 ⭐⭐⭐ ====================
+    // 基于邮箱地址生成确定性UUID v5（不使用用户ID）
+    let emailId = generateEmailUUID(address) // ⭐⭐⭐ 注意：不传用户ID ⭐⭐⭐
+    // ==========================================================================
     
     const existingEmail = await db.query.emails.findFirst({
       where: eq(sql`LOWER(${emails.address})`, address.toLowerCase())
@@ -93,13 +82,24 @@ export async function POST(request: Request) {
       )
     }
 
+    // 检查ID是否已存在（由于不使用用户ID，不同用户可能生成相同UUID）
+    const existingId = await db.query.emails.findFirst({
+      where: eq(emails.id, emailId)
+    })
+    
+    if (existingId) {
+      // UUID v5冲突！使用随机UUID作为回退
+      console.warn(`UUID v5冲突: ${emailId} 已存在，使用随机UUID作为回退`)
+      emailId = crypto.randomUUID()
+    }
+
     const now = new Date()
     const expires = expiryTime === 0 
       ? new Date('9999-01-01T00:00:00.000Z')
       : new Date(now.getTime() + expiryTime)
     
     const emailData: typeof emails.$inferInsert = {
-      id: emailId,          // ⭐⭐⭐ 添加这行：使用生成的 ID ⭐⭐⭐
+      id: emailId,          // ⭐⭐⭐ 使用 UUID v5 ⭐⭐⭐
       address,
       createdAt: now,
       expiresAt: expires,
